@@ -1,30 +1,7 @@
 use std::fmt::Write;
 use std::mem;
 
-use crate::parser::daikon_strs::{
-    BOOL, CHAR, F32, F64, I8, I16, I32, I64, I128, ISIZE, STR, STRING, U8, U16, U32, U64, U128,
-    UNIT, USIZE, VEC, base_impl, build_call_print_field, build_daikon_tmp_vec,
-    build_daikon_tmp_vec_ampersand, build_daikon_tmp_vec_field_userdef,
-    build_daikon_tmp_vec_field_userdef_ampersand, build_daikon_tmp_vec_userdef,
-    build_dtrace_print_fields_noop, build_dtrace_print_fields_vec_noop,
-    build_dtrace_print_xfield_epilogue, build_dtrace_print_xfield_middle,
-    build_dtrace_print_xfield_prologue, build_entry, build_exit, build_field_prim,
-    build_field_prim_ref, build_field_userdef, build_field_userdef_with_ampersand_access,
-    build_imports, build_let_ret, build_phony_ret, build_pointer_arr, build_pointer_arr_ret,
-    build_pointer_arr_userdef, build_pointer_vec, build_pointer_vec_ret, build_pointer_vec_userdef,
-    build_pointers_vec_userdef, build_prim, build_prim_field_tostring, build_prim_ref,
-    build_prim_ref_ret, build_prim_ret, build_prim_with_tostring, build_prim_with_tostring_ret,
-    build_print_pointer_vec, build_print_pointer_vec_userdef, build_print_prim_vec,
-    build_print_prim_vec_for_field, build_print_string_vec, build_print_string_vec_for_field,
-    build_print_vec_fields, build_print_vec_fields_for_field, build_print_vec_fields_userdef,
-    build_print_xfield, build_print_xfield_for_vec, build_print_xfield_string,
-    build_print_xfield_vec, build_ret, build_tmp_prim_vec_for_field, build_tmp_vec_for_field,
-    build_tmp_vec_for_field_ampersand, build_tmp_vec_prim, build_userdef, build_userdef_ret,
-    build_userdef_ret_ampersand, build_userdef_with_ampersand_access, build_void_return,
-    daikon_lib, dtrace_newline, dtrace_print_fields_epilogue, dtrace_print_fields_prologue,
-    dtrace_print_fields_vec_epilogue, dtrace_print_fields_vec_prologue,
-    dtrace_print_xfields_vec_epilogue, dtrace_print_xfields_vec_prologue, init_nonce,
-};
+use crate::parser::daikon_strs::*;
 use crate::{StripTokens, new_parser_from_source_str, unwrap_or_emit_fatal};
 use rustc_ast::mut_visit::*;
 use rustc_ast::*;
@@ -507,7 +484,10 @@ impl<'a> DaikonDtraceVisitor<'a> {
         ret_ty: &FnRetTy,
         daikon_tmp_counter: &mut u32,
     ) {
-        let exit = build_exit(ppt_name.clone(), *exit_counter);
+        let exit = build_instrument_code(
+            vec![ppt_name.clone(), String::from(&*exit_counter.to_string())],
+            DTRACE_EXIT,
+        );
         *exit_counter += 1;
 
         *i = self.insert_into_block(*i, exit.clone(), body);
@@ -838,7 +818,10 @@ impl<'a> DaikonDtraceVisitor<'a> {
         match &stmt.kind {
             StmtKind::Semi(semi) => match &semi.kind {
                 ExprKind::Ret(None) => {
-                    let exit = build_exit(ppt_name.clone(), *exit_counter);
+                    let exit = build_instrument_code(
+                        vec![ppt_name.clone(), String::from(&*exit_counter.to_string())],
+                        DTRACE_EXIT,
+                    );
                     *exit_counter += 1;
                     i = self.insert_into_block(i, exit.clone(), body);
                     for param_block in &mut *dtrace_param_blocks {
@@ -1499,7 +1482,14 @@ impl<'a> DaikonDtraceVisitor<'a> {
                         } else if is_ref {
                             build_prim_ref(p_type.clone(), get_param_ident(&decl.inputs[i].pat))
                         } else {
-                            build_prim(p_type.clone(), get_param_ident(&decl.inputs[i].pat))
+                            build_instrument_code(
+                                vec![
+                                    p_type.clone(),
+                                    get_param_ident(&decl.inputs[i].pat),
+                                    get_param_ident(&decl.inputs[i].pat),
+                                ],
+                                DTRACE_PRIM,
+                            )
                         }
                     }
                     BasicType::UserDef(_) => {
@@ -1725,9 +1715,9 @@ impl<'a> DaikonDtraceVisitor<'a> {
         //   unlock
         //   use the stored value at all exit points in this function
         // Currently there is a nonce counter per file which is not right.
-        i = self.insert_into_block(i, init_nonce(), body);
+        i = self.insert_into_block(i, build_instrument_code(vec![], INIT_NONCE), body);
 
-        let entry = build_entry(ppt_name.clone());
+        let entry = build_instrument_code(vec![ppt_name.clone()], DTRACE_ENTRY);
         i = self.insert_into_block(i, entry, body);
         for param_block in &mut *dtrace_param_blocks {
             i = self.insert_into_block(i, param_block.clone(), body);

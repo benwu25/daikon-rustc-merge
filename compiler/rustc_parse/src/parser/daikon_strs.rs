@@ -32,46 +32,36 @@ pub static STR: &str = "str";
 pub static STRING: &str = "String";
 pub static VEC: &str = "Vec";
 
-// placeholders are between the strs
-
-pub(crate) static INIT_NONCE: &str = "fn __skip() { let mut __daikon_nonce = 0;\nlet mut __unwrap_nonce = NONCE_COUNTER.lock().unwrap();\n__daikon_nonce = *__unwrap_nonce;\n*__unwrap_nonce += 1;\ndrop(__unwrap_nonce);\n }";
-pub(crate) fn init_nonce() -> String {
-    String::from(INIT_NONCE)
-}
-
-// TODO: before build_entry, initialize __daikon_nonce with the NONCE_COUNTER lock.
-pub(crate) static DTRACE_ENTRY: [&str; 2] =
-    ["fn __skip() { dtrace_entry(\"", ":::ENTER\", __daikon_nonce); }"];
-pub(crate) fn build_entry(ppt_name: String) -> String {
-    let mut res = String::from(DTRACE_ENTRY[0]);
-    res.push_str(&ppt_name);
-    res.push_str(DTRACE_ENTRY[1]);
+pub(crate) fn build_instrument_code(replacements: Vec<String>, source_str: &str) -> String {
+    let mut res: String = String::from(source_str);
+    let mut i = 0;
+    while i < replacements.len() {
+        res = res.replace(&format!("${}", i + 1), &replacements[i]);
+        i += 1;
+    }
     res
 }
 
-pub(crate) static DTRACE_EXIT: [&str; 3] =
-    ["fn __skip() { dtrace_exit(\"", ":::EXIT", "\", __daikon_nonce); }"];
-pub(crate) fn build_exit(ppt_name: String, exit_counter: usize) -> String {
-    let mut res = String::from(DTRACE_EXIT[0]);
-    res.push_str(&ppt_name);
-    res.push_str(DTRACE_EXIT[1]);
-    res.push_str(&exit_counter.to_string());
-    res.push_str(DTRACE_EXIT[2]);
-    res
-}
+// Initialize a function-local nonce counter.
+// (no arguments)
+pub(crate) static INIT_NONCE: &str = "fn main() { let mut __daikon_nonce = 0;\nlet mut __unwrap_nonce = NONCE_COUNTER.lock().unwrap();\n__daikon_nonce = *__unwrap_nonce;\n*__unwrap_nonce += 1;\ndrop(__unwrap_nonce);\n }";
 
-pub(crate) static DTRACE_PRIM: [&str; 4] =
-    ["fn __skip() { dtrace_print_prim::<", ">(", ", String::from(\"", "\")); }"];
-pub(crate) fn build_prim(p_type: String, var_name: String) -> String {
-    let mut res = String::from(DTRACE_PRIM[0]);
-    res.push_str(&p_type);
-    res.push_str(DTRACE_PRIM[1]);
-    res.push_str(&var_name);
-    res.push_str(DTRACE_PRIM[2]);
-    res.push_str(&var_name);
-    res.push_str(DTRACE_PRIM[3]);
-    res
-}
+// Build dtrace entry call for each ppt-enter.
+// $1: ppt-name (e.g. MAIN, FOO)
+pub(crate) static DTRACE_ENTRY: &str =
+    "fn main() { dtrace_entry(\"$1:::ENTER\", __daikon_nonce); }";
+
+// Build dtrace exit call for each ppt-exit.
+// $1: ppt-name.
+// $2: number corresponding to this exit ppt, unique for each within the function.
+pub(crate) static DTRACE_EXIT: &str = "fn main() { dtrace_exit(\"$1:::EXIT$2\", __daikon_nonce); }";
+
+// Build a call to log a primitive value.
+// $1: Primitive type of the variable
+// $2: var identifier
+// $3: var identifier
+pub(crate) static DTRACE_PRIM: &str =
+    "fn main() { dtrace_print_prim::<$1>($2, String::from(\"$3\")); }";
 
 pub(crate) static DTRACE_PRIM_RET: [&str; 2] =
     ["fn __skip() { dtrace_print_prim::<", ">(__daikon_ret, String::from(\"return\")); }"];
